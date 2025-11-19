@@ -1,1 +1,5 @@
-streamlitlibrosanumpymatplotlibstreamlit-mic-recorderscipy
+streamlit
+librosa
+numpy
+matplotlib
+streamlit-mic-recorder
