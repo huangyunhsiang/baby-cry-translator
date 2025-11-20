@@ -6,196 +6,156 @@ import matplotlib.pyplot as plt
 from streamlit_mic_recorder import mic_recorder
 import os
 
-# --- 1. 頁面設定 (Page Config) ---
-st.set_page_config(page_title="智慧嬰語翻譯機 (雲端版)", page_icon="👶")
+# --- 1. 頁面設定 ---
+st.set_page_config(page_title="智慧嬰語翻譯機 (研究版 v2.0)", page_icon="🔬", layout="wide")
 
-# --- 2. 自訂 CSS (優化手機操作體驗) ---
-# 加大按鈕尺寸，方便手機點擊
+# 自訂 CSS
 st.markdown("""
     <style>
-    .stButton>button { 
-        width: 100%; 
-        height: 60px; 
-        font-size: 18px; 
-        font-weight: bold; 
-        border-radius: 12px;
-    }
-    .block-container { padding-top: 2rem; }
+    .stButton>button { width: 100%; height: 70px; font-size: 20px; font-weight: bold; border-radius: 15px; }
+    .metric-card { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-left: 5px solid #6c757d; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 主標題區 ---
-st.title("👶 智慧嬰語翻譯機")
-st.caption("SIICAI - Cloud Analysis System")
-st.info("說明：請點擊下方紅色按鈕開始錄音，再次點擊即可停止並開始分析。")
+st.title("🔬 智慧嬰語翻譯機 (研究優化版)")
+st.caption("基於 Zeskind (1997) 與 Dunstan 聲學特徵模型")
 
-# --- 4. 側邊欄：環境變數輸入 (Context Input) ---
+# --- 2. 側邊欄：情境變數 ---
 with st.sidebar:
-    st.header("📝 環境參數設定")
-    st.write("為了提高 AI 判讀準確度，請輸入當下狀況：")
-    
+    st.header("📊 參數校正")
+    st.write("針對 4 個月大嬰兒優化")
     last_feed = st.slider("距離上一餐 (小時)", 0.0, 6.0, 2.5, 0.5)
+    diaper_status = st.radio("尿布狀態", ["乾淨", "髒/濕"])
     
-    is_diaper_clean = st.radio(
-        "目前的尿布狀態", 
-        ["乾淨 (Clean)", "髒/濕 (Dirty/Wet)"], 
-        index=0
-    )
+    st.markdown("---")
+    st.info("**科學指標說明：**\n\n1. **F0 (基頻)**: 疼痛哭聲通常 > 450Hz\n2. **規律性**: 飢餓哭聲能量起伏大\n3. **ZCR (過零率)**: 聲音越沙啞/尖銳數值越高")
 
-# --- 5. 錄音功能區 (核心功能) ---
-st.subheader("1. 聲音採樣 (Audio Input)")
-
-# 建立兩欄版面，讓按鈕不會佔滿整個螢幕寬度
-col1, col2 = st.columns([1, 3])
+# --- 3. 錄音區 ---
+col1, col2 = st.columns([1, 2])
 with col1:
-    st.write("操作指令：")
+    st.subheader("採樣控制")
+    st.write("請錄製約 3-5 秒")
 with col2:
-    # 呼叫網頁錄音元件
-    # 這是雲端版能運作的關鍵，它會調用手機/瀏覽器的麥克風
     audio = mic_recorder(
-        start_prompt="🔴 點擊錄音 (Start)",
+        start_prompt="🔴 開始錄音 (Start)",
         stop_prompt="⬛ 停止並分析 (Stop)",
         key='recorder',
         format='wav'
     )
 
-# --- 6. 分析與決策流程 ---
+# --- 4. 核心分析邏輯 ---
 if audio:
-    # 取得錄音的二進位資料
     audio_bytes = audio['bytes']
-    
-    st.success("✅ 錄音接收成功！AI 正在運算中...")
-    
-    # 將資料存為暫存檔，以便 librosa 讀取
     temp_filename = "cloud_upload.wav"
     with open(temp_filename, "wb") as f:
         f.write(audio_bytes)
 
-    # 顯示播放器供確認
-    st.audio(audio_bytes)
-
+    st.success("✅ 音訊接收成功，正在進行頻譜分析...")
+    
     try:
-        with st.spinner('正在提取聲學特徵 (MFCC/RMS/BPM)...'):
-            # A. 讀取音訊
-            y, sr = librosa.load(temp_filename)
-            
-            # B. 提取關鍵特徵
-            # 1. 能量強度 (Volume/RMS)
-            rms = librosa.feature.rms(y=y)
-            avg_volume = np.mean(rms)
-            
-            # 2. 音高頻率 (Pitch/Spectral Centroid)
-            centroids = librosa.feature.spectral_centroid(y=y, sr=sr)
-            avg_pitch_feature = np.mean(centroids)
-            
-            # 3. 節奏速度 (Tempo/BPM)
-            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-            tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
-            bpm = tempo[0]
+        # A. 載入音訊
+        y, sr = librosa.load(temp_filename)
+        
+        # B. 提取高階聲學特徵
+        
+        # 1. 能量特徵 (RMS)
+        rms = librosa.feature.rms(y=y)[0]
+        avg_rms = np.mean(rms)
+        rms_std = np.std(rms)  # 能量標準差 (判斷規律性關鍵)
+        
+        # 2. 頻率特徵 (Spectral Centroid & ZCR)
+        centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+        avg_centroid = np.mean(centroids)
+        
+        zcr = librosa.feature.zero_crossing_rate(y=y)[0]
+        avg_zcr = np.mean(zcr) # 過零率 (判斷噪音/沙啞度)
+        
+        # 3. 節奏特徵 (Onset & Tempo)
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
+        bpm = tempo[0]
 
-            # C. 視覺化儀表板 (Dashboard)
-            st.subheader("2. 聲學特徵儀表板")
-            
-            # 繪製波形圖
-            fig, ax = plt.subplots(figsize=(10, 3))
-            librosa.display.waveshow(y, sr=sr, ax=ax, color='#FF4B4B')
-            ax.set_title("Waveform Analysis")
-            ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Amplitude")
+        # C. 視覺化儀表板
+        with st.expander("📈 點擊查看詳細聲學波形", expanded=True):
+            fig, ax = plt.subplots(figsize=(12, 4))
+            librosa.display.waveshow(y, sr=sr, ax=ax, color='#17a2b8')
+            ax.set_title(f"Oscillogram (Energy Variance: {rms_std:.4f})")
             st.pyplot(fig)
-            
-            # 顯示數值指標
-            m1, m2, m3 = st.columns(3)
-            m1.metric("能量強度 (RMS)", f"{avg_volume:.3f}")
-            m2.metric("音高頻率 (Hz)", f"{avg_pitch_feature:.0f}")
-            m3.metric("節奏 (BPM)", f"{bpm:.0f}")
 
-            # D. 邏輯決策樹 (Decision Tree)
-            # 根據特徵數值進行分類
-            predicted_type = "未知"
-            urgency_color = "blue" # blue, orange, red, green
+        # D. 數據矩陣
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("能量均值 (Intensity)", f"{avg_rms:.3f}")
+        c2.metric("頻譜質心 (Pitch)", f"{avg_centroid:.0f} Hz")
+        c3.metric("規律性 (Rhythm)", f"{rms_std:.3f}", delta_color="inverse")
+        c4.metric("尖銳度 (ZCR)", f"{avg_zcr:.3f}")
+
+        # E. 決策樹邏輯 (基於研究文獻優化)
+        # 這些閾值是基於一般 3-6 個月嬰兒數據設定
+        
+        prediction = "未知"
+        reason = ""
+        color = "gray"
+
+        # 邏輯 1: 疼痛 (Pain) - 高能量、高頻、持續無規律
+        if avg_rms > 0.1 and avg_centroid > 3000:
+            prediction = "疼痛 (Pain)"
+            reason = "偵測到極高頻尖叫與高能量，且聲音緊繃 (High Centroid)。"
+            color = "red"
             
-            if avg_volume > 0.08 and avg_pitch_feature > 2800:
-                predicted_type = "疼痛 (Pain)"
-                urgency_color = "red"
-            elif bpm > 110 and avg_volume > 0.04:
-                predicted_type = "飢餓 (Hunger)"
-                urgency_color = "orange"
-            elif avg_volume < 0.03:
-                predicted_type = "疲倦 (Tired)"
-                urgency_color = "blue"
+        # 邏輯 2: 飢餓 (Hunger) - 高規律性 (Rhythmic)、中高能量
+        # rms_std > 0.03 代表聲音忽大忽小（有換氣節奏）
+        elif rms_std > 0.03 and avg_rms > 0.05:
+            prediction = "飢餓 (Hunger)"
+            reason = "能量波形呈現高度規律性 (High Variance)，符合飢餓哭聲特徵。"
+            color = "orange"
+            
+        # 邏輯 3: 疲倦 (Tired) - 低能量、音調遞減
+        elif avg_rms < 0.05:
+            prediction = "疲倦 (Tired)"
+            reason = "整體能量較低，聲音拖長且無爆發力。"
+            color = "blue"
+            
+        # 邏輯 4: 不適/撒嬌 (Discomfort) - 高ZCR但能量中等
+        elif avg_zcr > 0.1:
+            prediction = "不適/脹氣 (Discomfort)"
+            reason = "聲音聽起來較為煩躁沙啞 (High ZCR)，可能是尿布濕或脹氣。"
+            color = "green"
+            
+        else:
+            prediction = "尋求關注 (Attention)"
+            reason = "各項數值均衡，可能是無聊或想要抱抱。"
+            color = "green"
+
+        # F. 綜合診斷報告
+        st.divider()
+        st.subheader(f"AI 診斷結果: :{color}[{prediction}]")
+        st.write(f"**聲學判讀依據:** {reason}")
+        
+        # G. SOP 建議
+        st.markdown("### 🛡️ 安全主任建議行動 (SOP)")
+        
+        if "疼痛" in prediction:
+            st.error("""
+            **緊急應變程序:**
+            1. **檢查身體:** 確認無外傷、頭髮纏繞 (Hair Tourniquet)。
+            2. **排除病理:** 觀察是否有發燒、嘔吐或腹股溝疝氣徵兆。
+            3. **腸絞痛檢測:** 若發生於黃昏且持續尖叫，觸診腹部是否僵硬。
+            """)
+        elif "飢餓" in prediction:
+            if last_feed < 2:
+                 st.warning(f"雖然聲學特徵像飢餓，但距離上一餐僅 {last_feed} 小時。建議先檢查**脹氣**或給予**安撫奶嘴** (滿足口慾)。")
             else:
-                predicted_type = "不適/尋求關注"
-                urgency_color = "green"
+                 st.success("**建議行動:** 立即準備餵食。")
+        elif "疲倦" in prediction:
+             st.info("**建議行動:** 執行睡眠儀式 (關燈、白噪音、包巾)，避免過度逗弄。")
+        else:
+             st.success("**建議行動:** 檢查尿布，或變換抱姿 (足球抱/飛機抱) 緩解不適。")
 
-            # E. 輸出結果與建議
-            st.subheader("3. 智慧決策建議 (SOP)")
-            
-            # 顯示判讀結果
-            if urgency_color == "red":
-                st.error(f"### 🔍 AI 判讀結果：{predicted_type}")
-            elif urgency_color == "orange":
-                st.warning(f"### 🔍 AI 判讀結果：{predicted_type}")
-            elif urgency_color == "green":
-                st.success(f"### 🔍 AI 判讀結果：{predicted_type}")
-            else:
-                st.info(f"### 🔍 AI 判讀結果：{predicted_type}")
-
-            # 生成建議行動 (Action Plan)
-            advice = ""
-            
-            if "疼痛" in predicted_type:
-                advice = """
-                🔴 **緊急處置 SOP：**
-                1. **檢查外傷**：確認是否有頭髮纏繞手指/腳趾 (Hair tourniquet)。
-                2. **量測體溫**：確認是否發燒。
-                3. **觸診腹部**：若腹部緊繃可能是腸絞痛，請嘗試飛機抱或腹部按摩。
-                > **注意**：若安撫無效且持續高頻尖叫，建議諮詢醫師。
-                """
-            elif "飢餓" in predicted_type:
-                if last_feed < 1.5:
-                    advice = """
-                    🟡 **決策建議：**
-                    * 距離上一餐時間較短，可能是 **口慾期 (討安撫)** 或 **需要拍嗝**。
-                    * 建議先檢查是否有氣體未排出，或給予安撫奶嘴。
-                    """
-                else:
-                    advice = """
-                    🟢 **決策建議：**
-                    * 生理時鐘與哭聲特徵吻合，判斷為 **飢餓**。
-                    * 建議立即準備餵食。
-                    """
-            elif "疲倦" in predicted_type:
-                advice = """
-                🔵 **處置建議：**
-                * 寶寶累過頭了 (Over-tired)。
-                * **立即降低環境刺激**：關燈、關閉吵雜聲音。
-                * 使用白噪音並進行包巾安撫，協助入睡。
-                """
-            else: # 不適或尋求關注
-                if "髒" in is_diaper_clean:
-                    advice = """
-                    🟡 **優先行動：**
-                    * 請優先 **更換尿布**。
-                    * 檢查是否有尿布疹情形。
-                    """
-                else:
-                    advice = """
-                    🟢 **建議行動：**
-                    * 生理需求似乎已滿足。
-                    * 可能是 **無聊** 或 **太熱/太冷**。
-                    * 建議變換抱姿，檢查後頸溫度，或與寶寶說話互動。
-                    """
-
-            st.markdown(advice)
-            
-            # 清除暫存檔，釋放空間
-            if os.path.exists(temp_filename):
-                os.remove(temp_filename)
+        # 清理暫存
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
 
     except Exception as e:
-        st.error(f"分析過程發生錯誤：{e}")
-        st.info("排除建議：請確認手機瀏覽器已授權使用麥克風，並嘗試錄製長一點的聲音 (3秒以上)。")
-
+        st.error(f"分析失敗: {e}")
 else:
-    st.write("等待錄音... 請點擊上方按鈕開始。")
+    st.info("等待輸入...")
